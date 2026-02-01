@@ -5,6 +5,11 @@ let progressInterval = null;
 let parsedCardVisible = false;
 let latestParsedResume = null;
 
+let selectedStyle = 'professional';
+let currentResumeHTML = null;
+let currentJobForResume = null;
+let availableStyles = {};
+
 // ===== DOM ELEMENTS =====
 const elements = {
     uploadArea: document.getElementById('upload-area'),
@@ -926,9 +931,88 @@ function renderAtsCard(atsData) {
     elements.analyticsGrid.prepend(card);
 }
 
+// function createJobCard(job) {
+//     const card = document.createElement('div');
+//     card.className = 'job-card rounded-xl border border-slate-200 bg-white shadow-sm p-5 flex flex-col gap-3 hover:shadow-md hover:-translate-y-0.5 transition cursor-pointer';
+//     card.dataset.score = job.score || 0;
+//     card.dataset.company = job.company || '';
+//     card.dataset.date = job.published || '';
+//     card.dataset.site = job.site || '';
+
+//     const score = parseFloat(job.score) || 0;
+//     const scoreBadge = score >= 80
+//         ? 'bg-emerald-50 text-emerald-700'
+//         : score >= 60
+//             ? 'bg-amber-50 text-amber-700'
+//             : 'bg-rose-50 text-rose-700';
+    
+//     const atsScore = job.ats_score !== undefined && job.ats_score !== null ? parseInt(job.ats_score) : null;
+//     const descGenerated = job.description_generated ? '<span class="inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold bg-slate-100 text-slate-600">Generated</span>' : '';
+//     card.innerHTML = `
+//         <div class="flex items-start justify-between gap-3">
+//             <div class="space-y-1">
+//                 <div class="text-base font-semibold text-slate-900">${escapeHtml(job.title || 'N/A')}</div>
+//                 <div class="text-sm text-slate-600">${escapeHtml(job.company || 'N/A')}</div>
+//             </div>
+//             <div class="flex items-center gap-2">
+//                 <div class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${scoreBadge}">${score}% Match</div>
+//                 ${atsScore !== null ? `<div class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-sky-50 text-sky-700">ATS ${atsScore}%</div>` : ''}
+//             </div>
+//         </div>
+        
+//         <div class="text-sm text-slate-700 leading-relaxed">
+//             <div class="flex items-center gap-2 mb-1">${descGenerated}</div>
+//             ${escapeHtml(job.description || 'No description available').substring(0, 180)}...
+//         </div>
+        
+//         <div class="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+//             <span class="inline-flex items-center gap-1"><i class="fas fa-building"></i> ${escapeHtml(job.site || 'N/A')}</span>
+//             <span class="inline-flex items-center gap-1"><i class="fas fa-calendar"></i> ${formatDate(job.published)}</span>
+//         </div>
+        
+//         ${job.explanation ? `
+//             <div class="mt-2 border-t border-slate-200 pt-3 space-y-2">
+//                 <h4 class="text-sm font-semibold text-slate-800 inline-flex items-center gap-1"><i class="fas fa-lightbulb text-amber-400"></i> AI Insights</h4>
+//                 <p class="text-xs text-slate-600">
+//                     ${escapeHtml(job.explanation).substring(0, 200)}...
+//                 </p>
+//                 ${job.recommended_improvements ? `
+//                     <div class="text-xs text-slate-700 space-y-1">
+//                         <strong class="text-slate-800">Recommendations:</strong>
+//                         ${Array.isArray(job.recommended_improvements) ? `
+//                             <ul class="list-disc list-inside space-y-1">
+//                                 ${job.recommended_improvements.slice(0, 3).map(improvement => 
+//                                     `<li>${escapeHtml(improvement)}</li>`
+//                                 ).join('')}
+//                             </ul>
+//                         ` : `
+//                             <p>${escapeHtml(job.recommended_improvements).substring(0, 150)}...</p>
+//                         `}
+//                     </div>
+//                 ` : ''}
+//             </div>
+//         ` : job.error ? `
+//             <div class="mt-2 border-t border-slate-200 pt-3 space-y-1">
+//                 <h4 class="text-sm font-semibold text-rose-600 inline-flex items-center gap-1"><i class="fas fa-exclamation-triangle"></i> Analysis Issue</h4>
+//                 <p class="text-xs text-rose-600">
+//                     ${escapeHtml(job.error || 'Unable to analyze this job at the moment.')}
+//                 </p>
+//             </div>
+//         ` : ''}
+//     `;
+
+//     // Add click handler to open job link
+//     card.addEventListener('click', () => {
+//         if (job.link && job.link !== 'N/A') {
+//             window.open(job.link, '_blank');
+//         }
+//     });
+
+//     return card;
+// }
 function createJobCard(job) {
     const card = document.createElement('div');
-    card.className = 'job-card rounded-xl border border-slate-200 bg-white shadow-sm p-5 flex flex-col gap-3 hover:shadow-md hover:-translate-y-0.5 transition cursor-pointer';
+    card.className = 'job-card rounded-xl border border-slate-200 bg-white shadow-sm p-5 flex flex-col gap-3 hover:shadow-md hover:-translate-y-0.5 transition';
     card.dataset.score = job.score || 0;
     card.dataset.company = job.company || '';
     card.dataset.date = job.published || '';
@@ -943,6 +1027,7 @@ function createJobCard(job) {
     
     const atsScore = job.ats_score !== undefined && job.ats_score !== null ? parseInt(job.ats_score) : null;
     const descGenerated = job.description_generated ? '<span class="inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold bg-slate-100 text-slate-600">Generated</span>' : '';
+    
     card.innerHTML = `
         <div class="flex items-start justify-between gap-3">
             <div class="space-y-1">
@@ -994,14 +1079,43 @@ function createJobCard(job) {
                 </p>
             </div>
         ` : ''}
+        
+        <!-- Action Buttons -->
+        <div class="mt-3 flex gap-2 border-t border-slate-200 pt-3">
+            <button 
+                class="view-job-btn flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-slate-100 text-slate-700 px-4 py-2 text-sm font-semibold hover:bg-slate-200 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-500"
+            >
+                <i class="fas fa-external-link-alt"></i>
+                View Job
+            </button>
+            <button 
+                class="generate-resume-btn flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 text-white px-4 py-2 text-sm font-semibold hover:bg-emerald-700 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-emerald-600"
+            >
+                <i class="fas fa-file-alt"></i>
+                Generate Resume
+            </button>
+        </div>
     `;
 
-    // Add click handler to open job link
-    card.addEventListener('click', () => {
-        if (job.link && job.link !== 'N/A') {
-            window.open(job.link, '_blank');
-        }
-    });
+    // Add event listener for View Job button
+    const viewBtn = card.querySelector('.view-job-btn');
+    if (viewBtn) {
+        viewBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (job.link && job.link !== 'N/A') {
+                window.open(job.link, '_blank');
+            }
+        });
+    }
+
+    // Add event listener for Generate Resume button
+    const generateBtn = card.querySelector('.generate-resume-btn');
+    if (generateBtn) {
+        generateBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showResumeGenerator(job);
+        });
+    }
 
     return card;
 }
@@ -1192,3 +1306,222 @@ const observeElements = () => {
 
 // Initialize observers when DOM is ready
 document.addEventListener('DOMContentLoaded', observeElements);
+async function initializeResumeGenerator() {
+    try {
+        const response = await fetch('/resume-styles');
+        const data = await response.json();
+        
+        if (data.success) {
+            availableStyles = data.styles;
+            renderStyleOptions(data.styles);
+        }
+    } catch (error) {
+        console.error('Error loading resume styles:', error);
+    }
+}
+
+// Render style selection cards
+function renderStyleOptions(styles) {
+    const container = document.getElementById('style-options');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    
+    Object.keys(styles).forEach(styleKey => {
+        const style = styles[styleKey];
+        const card = document.createElement('div');
+        card.className = `style-card bg-white border-2 border-slate-200 rounded-lg p-4 text-center ${styleKey === selectedStyle ? 'selected' : ''}`;
+        card.dataset.style = styleKey;
+        
+        card.innerHTML = `
+            <div class="font-semibold text-slate-900 mb-1">${style.name}</div>
+            <div class="text-xs text-slate-600">${style.description}</div>
+            <div class="mt-2 text-xs font-mono" style="color: ${style.accent_color}">${style.accent_color}</div>
+        `;
+        
+        card.addEventListener('click', () => selectStyle(styleKey));
+        container.appendChild(card);
+    });
+}
+
+// Select a style
+function selectStyle(styleKey) {
+    selectedStyle = styleKey;
+    
+    document.querySelectorAll('.style-card').forEach(card => {
+        if (card.dataset.style === styleKey) {
+            card.classList.add('selected');
+        } else {
+            card.classList.remove('selected');
+        }
+    });
+}
+
+// Show resume generator for a specific job
+function showResumeGenerator(job) {
+    if (!currentResumeData) {
+        showError('Please analyze your resume first');
+        return;
+    }
+    
+    currentJobForResume = job;
+    
+    const section = document.getElementById('resume-generator-section');
+    if (section) {
+        section.classList.remove('hidden');
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+// Preview resume
+async function previewResume() {
+    if (!currentResumeData || !currentJobForResume) {
+        showError('Missing resume data or job information');
+        return;
+    }
+    
+    showLoading('Generating tailored resume...');
+    
+    try {
+        const response = await fetch('/generate-resume', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                resume_data: currentResumeData,
+                job_description: currentJobForResume.description || '',
+                job_title: currentJobForResume.title || 'Position',
+                style: selectedStyle
+            })
+        });
+        
+        const data = await response.json();
+        hideLoading();
+        
+        if (data.success) {
+            currentResumeHTML = data.resume.html;
+            displayResumePreview(data.resume);
+            displayRelevanceAnalysis(data.resume.relevance, data.resume.recommendations);
+            
+            // Enable download button
+            document.getElementById('download-resume-btn').disabled = false;
+        } else {
+            showError(data.error || 'Failed to generate resume');
+        }
+    } catch (error) {
+        hideLoading();
+        showError('Error generating resume: ' + error.message);
+    }
+}
+
+// Display resume preview in modal
+function displayResumePreview(resume) {
+    const modal = document.getElementById('resume-preview-modal');
+    const content = document.getElementById('resume-preview-content');
+    
+    if (content) {
+        content.innerHTML = resume.html;
+    }
+    
+    if (modal) {
+        modal.classList.remove('hidden');
+    }
+}
+
+// Display relevance analysis
+function displayRelevanceAnalysis(relevance, recommendations) {
+    const analysisSection = document.getElementById('relevance-analysis');
+    if (!analysisSection) return;
+    
+    analysisSection.classList.remove('hidden');
+    
+    // High relevance skills
+    const highList = document.getElementById('high-relevance-list');
+    if (highList) {
+        highList.innerHTML = relevance.skills.high
+            .map(skill => `<li class="flex items-center gap-1"><i class="fas fa-check-circle text-xs"></i> ${skill}</li>`)
+            .join('') || '<li class="text-slate-400">None</li>';
+    }
+    
+    // Medium relevance skills
+    const mediumList = document.getElementById('medium-relevance-list');
+    if (mediumList) {
+        mediumList.innerHTML = relevance.skills.medium
+            .map(skill => `<li class="flex items-center gap-1"><i class="fas fa-circle text-xs"></i> ${skill}</li>`)
+            .join('') || '<li class="text-slate-400">None</li>';
+    }
+    
+    // Low relevance skills
+    const lowList = document.getElementById('low-relevance-list');
+    if (lowList) {
+        lowList.innerHTML = relevance.skills.low
+            .slice(0, 5)
+            .map(skill => `<li class="opacity-60">${skill}</li>`)
+            .join('') || '<li class="text-slate-400">None</li>';
+    }
+    
+    // Recommendations
+    const recList = document.getElementById('recommendations-list');
+    if (recList && relevance.recommendations) {
+        recList.innerHTML = relevance.recommendations
+            .map(rec => `<li>${rec}</li>`)
+            .join('') || '<li>Resume looks good for this position!</li>';
+    }
+}
+
+
+// Download resume as PDF
+function downloadResumePDF() {
+    if (!currentResumeHTML) {
+        showError('Please preview the resume first');
+        return;
+    }
+    
+    // Create a temporary window with the resume
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(currentResumeHTML);
+    printWindow.document.close();
+    
+    // Wait for content to load, then print
+    setTimeout(() => {
+        printWindow.print();
+    }, 500);
+}
+
+// Close preview modal
+function closeResumePreview() {
+    const modal = document.getElementById('resume-preview-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+}
+
+// Add event listeners for resume generator
+document.addEventListener('DOMContentLoaded', () => {
+    // Initialize resume generator
+    initializeResumeGenerator();
+    
+    const previewBtn = document.getElementById('preview-resume-btn');
+    if (previewBtn) {
+        previewBtn.addEventListener('click', previewResume);
+    }
+    
+    const downloadBtn = document.getElementById('download-resume-btn');
+    if (downloadBtn) {
+        downloadBtn.addEventListener('click', downloadResumePDF);
+    }
+    
+    const closePreviewBtn = document.getElementById('close-preview-btn');
+    if (closePreviewBtn) {
+        closePreviewBtn.addEventListener('click', closeResumePreview);
+    }
+    
+    const modalCloseBtn = document.getElementById('modal-close-btn');
+    if (modalCloseBtn) {
+        modalCloseBtn.addEventListener('click', closeResumePreview);
+    }
+    
+    const modalDownloadBtn = document.getElementById('modal-download-btn');
+    if (modalDownloadBtn) {
+        modalDownloadBtn.addEventListener('click', downloadResumePDF);
+    }
+});

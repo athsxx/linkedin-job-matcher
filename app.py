@@ -9,6 +9,7 @@ from intelligence.market_intel import get_salary_insights, get_market_demand_tre
 import threading
 import time
 from dotenv import load_dotenv
+from resume_generator2 import generate_resume_for_job, get_available_styles
 
 # Load environment variables
 load_dotenv()
@@ -530,6 +531,56 @@ def get_market_intelligence():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/resume-styles', methods=['GET'])
+def get_resume_styles():
+    """Get available resume styles/templates"""
+    try:
+        from resume_generator2 import get_available_styles
+        styles = get_available_styles()
+        return jsonify({
+            'success': True,
+            'styles': styles
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/generate-resume', methods=['POST'])
+def generate_tailored_resume():
+    """Generate a tailored resume for a specific job"""
+    try:
+        data = request.get_json()
+        
+        resume_data = data.get('resume_data')
+        job_description = data.get('job_description', '')
+        job_title = data.get('job_title', 'Position')
+        style = data.get('style', 'professional')
+        
+        if not resume_data:
+            return jsonify({'error': 'Resume data required'}), 400
+        
+        if not job_description:
+            return jsonify({'error': 'Job description required'}), 400
+        
+        # from resume_generator import generate_resume_for_job
+        
+        result = generate_resume_for_job(
+            resume_data,
+            job_description,
+            job_title,
+            style
+        )
+        
+        return jsonify({
+            'success': True,
+            'resume': result
+        })
+        
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Error generating resume: {error_trace}")
+        return jsonify({'error': str(e), 'traceback': error_trace}), 500
 
 if __name__ == '__main__':
     # Use port 5003 to avoid conflicts with other services

@@ -1311,3 +1311,56 @@ body {
         grid-template-columns: 1fr;
     }
 }
+/* Resume Generator Styles */
+.style-card {
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.style-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+.style-card.selected {
+    box-shadow: 0 0 0 2px #0ea5e9;
+    background-color: #e0f2fe;
+}
+
+.style-card.selected::after {
+    content: '✓';
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    width: 1.5rem;
+    height: 1.5rem;
+    background: #0ea5e9;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 0.875rem;
+}
+
+#resume-preview-content {
+    box-shadow: 0 0 20px rgba(0,0,0,0.1);
+}
+
+/* Print styles for resume */
+@media print {
+    body * {
+        visibility: hidden;
+    }
+    #resume-preview-content, #resume-preview-content * {
+        visibility: visible;
+    }
+    #resume-preview-content {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+    }
+}
