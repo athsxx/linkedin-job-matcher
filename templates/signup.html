@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up | AI Resume Matcher</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=2">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <i class="fas fa-brain"></i>
+                <span>AI Resume Matcher</span>
+            </a>
+            <div class="nav-menu">
+                <div class="nav-item">
+                    <a href="/login" class="nav-link">Login</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <section class="hero-section">
+            <div class="container">
+                <div class="hero-content" style="grid-template-columns: 1fr; justify-items: center;">
+                    <div class="hero-upload" style="width: 100%; max-width: 480px;">
+                        <div class="upload-card">
+                            <div class="upload-header">
+                                <h3>Create Account</h3>
+                                <p>Get started with AI-powered job matching</p>
+                            </div>
+                            {% if error %}
+                            <div style="background: #fff5f5; color: var(--error-color); padding: var(--space-4); border-radius: var(--radius-lg); margin-bottom: var(--space-6); font-size: var(--font-size-sm);">
+                                <i class="fas fa-exclamation-circle"></i> {{ error }}
+                            </div>
+                            {% endif %}
+                            <form method="POST" class="search-form">
+                                <div class="form-group">
+                                    <label for="username">Username</label>
+                                    <input type="text" id="username" name="username" placeholder="johndoe" required autofocus>
+                                </div>
+                                <div class="form-group">
+                                    <label for="email">Email</label>
+                                    <input type="email" id="email" name="email" placeholder="you@example.com" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="password">Password</label>
+                                    <input type="password" id="password" name="password" placeholder="••••••••" required>
+                                </div>
+                                <button type="submit" class="upload-btn" style="margin-top: var(--space-2);">
+                                    <i class="fas fa-user-plus"></i> Sign Up
+                                </button>
+                            </form>
+                            <p style="text-align: center; margin-top: var(--space-6); color: var(--gray-600); font-size: var(--font-size-sm);">
+                                Already have an account? <a href="/login" style="color: var(--primary-color); font-weight: 500; text-decoration: none;">Sign in</a>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

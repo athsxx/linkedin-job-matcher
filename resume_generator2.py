@@ -7,7 +7,7 @@ import google.generativeai as genai
 import os
 import json
 import re
-from typing import Dict, List, Tuples
+from typing import Dict, List, Tuple
 from datetime import datetime
 from dotenv import load_dotenv
 

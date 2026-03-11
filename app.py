@@ -1,6 +1,9 @@
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, redirect
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 import os
+import sqlite3
 import json
 import uuid
 from linkedin_job_matcher import extract_text, analyze_resume, get_jobs_from_rss, match_jobs_to_resume
@@ -16,6 +19,111 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'fallback-secret-key-change-in-production')
+
+# =====================================================
+# ================= DATABASE SETUP ====================
+# =====================================================
+
+DB_NAME = "users.db"
+
+def get_db():
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+# =====================================================
+# ================= AUTH DECORATOR ====================
+# =====================================================
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect('/login')
+        return f(*args, **kwargs)
+    return decorated_function
+
+# =====================================================
+# ================= AUTH ROUTES =======================
+# =====================================================
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if 'user_id' in session:
+        return redirect('/')
+    if request.method == 'POST':
+        username = request.form.get('username')
+        email = request.form.get('email')
+        password = request.form.get('password')
+
+        if not username or not email or not password:
+            return render_template('signup.html', error='All fields required')
+
+        hashed_password = generate_password_hash(password)
+
+        try:
+            conn = get_db()
+            conn.execute(
+                "INSERT INTO users (username, email, password) VALUES (?, ?, ?)",
+                (username, email, hashed_password)
+            )
+            conn.commit()
+            conn.close()
+            return redirect('/login')
+        except sqlite3.IntegrityError:
+            return render_template('signup.html', error='Username or Email already exists')
+
+    return render_template('signup.html')
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if 'user_id' in session:
+        return redirect('/')
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+
+        conn = get_db()
+        user = conn.execute(
+            "SELECT * FROM users WHERE email = ?",
+            (email,)
+        ).fetchone()
+        conn.close()
+
+        if user and check_password_hash(user['password'], password):
+            session['user_id'] = user['id']
+            session['username'] = user['username']
+            return redirect('/')
+        else:
+            return render_template('login.html', error='Invalid email or password')
+
+    return render_template('login.html')
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect('/login')
+
+# =====================================================
+# ================= MAIN ROUTES ========================
+# =====================================================
+
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
@@ -31,11 +139,13 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 @app.route('/')
+@login_required
 def index():
     """Landing page with clean, minimalist design"""
-    return render_template('index.html')
+    return render_template('index.html', username=session.get('username'))
 
 @app.route('/upload', methods=['POST'])
+@login_required
 def upload_resume():
     """Handle resume file upload"""
     try:
@@ -91,6 +201,7 @@ def upload_resume():
         return jsonify({'error': f'Upload error: {str(e)}'}), 500
 
 @app.route('/analyze/<session_id>')
+@login_required
 def analyze_resume_route(session_id):
     """Analyze uploaded resume"""
     try:
@@ -185,6 +296,7 @@ def analyze_resume_route(session_id):
         return jsonify({'error': f'An unexpected error occurred: {str(e)}'}), 500
 
 @app.route('/search-jobs', methods=['POST'])
+@login_required
 def search_jobs():
     """Search for jobs and match to resume"""
     try:
@@ -255,6 +367,7 @@ def search_jobs():
         return jsonify({'error': f'Request error: {str(e)}'}), 500
 
 @app.route('/progress/<session_id>')
+@login_required
 def get_progress(session_id):
     """Get progress of job matching"""
     if not session_id:
@@ -273,6 +386,7 @@ def get_progress(session_id):
     return jsonify(progress)
 
 @app.route('/results/<session_id>')
+@login_required
 def get_results(session_id):
     """Get job matching results"""
     progress = progress_store.get(session_id, {})
@@ -290,6 +404,7 @@ def health_check():
     return jsonify({'status': 'healthy', 'timestamp': time.time()})
 
 @app.route('/analytics/<session_id>', methods=['POST'])
+@login_required
 def get_resume_analytics(session_id):
     """Get advanced resume analytics"""
     try:
@@ -323,6 +438,7 @@ def get_resume_analytics(session_id):
 
 
 @app.route('/ats-score/<session_id>', methods=['POST'])
+@login_required
 def get_ats_score(session_id):
     """Return ATS-friendly score for a previously analyzed resume"""
     try:
@@ -353,6 +469,7 @@ def get_ats_score(session_id):
         return jsonify({'error': f'ATS calculation error: {str(e)}'}), 500
 
 @app.route('/skills-gap', methods=['POST'])
+@login_required
 def analyze_skills_gap_route():
     """Analyze skills gap between resume and job"""
     try:
@@ -374,6 +491,7 @@ def analyze_skills_gap_route():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/search-jobs-advanced', methods=['POST'])
+@login_required
 def search_jobs_advanced():
     """Advanced job search with filters"""
     try:
@@ -501,6 +619,7 @@ def _apply_job_filters(jobs, salary_min, salary_max, job_type, experience_level)
     return filtered
 
 @app.route('/market-intelligence', methods=['POST'])
+@login_required
 def get_market_intelligence():
     """Get market intelligence for job search"""
     try:
@@ -533,6 +652,7 @@ def get_market_intelligence():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/resume-styles', methods=['GET'])
+@login_required
 def get_resume_styles():
     """Get available resume styles/templates"""
     try:
@@ -546,6 +666,7 @@ def get_resume_styles():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/generate-resume', methods=['POST'])
+@login_required
 def generate_tailored_resume():
     """Generate a tailored resume for a specific job"""
     try:
@@ -583,9 +704,10 @@ def generate_tailored_resume():
         return jsonify({'error': str(e), 'traceback': error_trace}), 500
 
 if __name__ == '__main__':
+    init_db()
     # Use port 5003 to avoid conflicts with other services
     # You can override with PORT environment variable
     port = int(os.environ.get('PORT', 5003))
     print(f"Starting server on http://0.0.0.0:{port}")
     print(f"Access the application at: http://localhost:{port}")
-    app.run(debug=False, host='0.0.0.0', port=port)
+    app.run(debug=True, host='0.0.0.0', port=port)
