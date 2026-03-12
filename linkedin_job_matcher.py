@@ -35,6 +35,12 @@ if not api_key:
 # Toggle for using real external feeds (Indeed/CareerJet scraping)
 USE_EXTERNAL_FEEDS = os.getenv("USE_EXTERNAL_FEEDS", "false").lower() == "true"
 
+# Ollama (local LLM) for resume parsing - optional
+USE_OLLAMA_FOR_RESUME = os.getenv("USE_OLLAMA_FOR_RESUME", "false").lower() == "true"
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
+
 # LLM functionality removed - using structured extraction only
 # genai.configure(api_key=api_key)
 # model = genai.GenerativeModel('gemini-2.0-flash')
@@ -95,19 +101,92 @@ def extract_text(file_path: str) -> str:
 
     return text.strip()
 
+RESUME_EXTRACTION_PROMPT = """Extract structured information from this resume. Return ONLY a valid JSON object (no markdown, no code block wrapper) with exactly these keys:
+- "name": full name (string)
+- "email": email address (string)
+- "phone": phone number (string)
+- "skills": array of skill names (strings)
+- "education": array of objects with "degree", "institution", "year" (strings)
+- "experience": array of objects with "role", "company", "duration", "description" (strings)
+- "summary": professional summary (string, max 500 chars)
+
+Resume text:
+---
+{resume_text}
+---
+JSON:"""
+
+
+def _analyze_resume_with_ollama(resume_text: str) -> dict:
+    """Call local Ollama model to extract structured resume data. Returns dict or raises."""
+    # Truncate very long resumes to avoid token limits
+    text_for_prompt = (resume_text or "")[:12000].strip()
+    if not text_for_prompt:
+        raise ValueError("No resume text to analyze")
+    prompt = RESUME_EXTRACTION_PROMPT.format(resume_text=text_for_prompt)
+    url = f"{OLLAMA_BASE_URL}/api/generate"
+    payload = {
+        "model": OLLAMA_MODEL,
+        "prompt": prompt,
+        "stream": False,
+    }
+    try:
+        r = requests.post(url, json=payload, timeout=OLLAMA_TIMEOUT)
+        r.raise_for_status()
+        out = r.json()
+        raw = (out.get("response") or "").strip()
+        if not raw:
+            raise ValueError("Empty response from Ollama")
+        # Parse JSON (may be wrapped in ```json ... ```)
+        if "```" in raw:
+            start = raw.find("```")
+            if "json" in raw[: start + 10].lower():
+                start = raw.find("\n", start) + 1
+            else:
+                start = raw.find("```") + 3
+            end = raw.find("```", start)
+            if end == -1:
+                end = len(raw)
+            raw = raw[start:end].strip()
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("Ollama did not return a JSON object")
+        # Ensure required keys
+        for key in ("name", "email", "phone", "skills", "education", "experience", "summary"):
+            if key not in data:
+                data[key] = "" if key in ("name", "email", "phone", "summary") else []
+        return _normalize_resume_data(data, resume_text)
+    except requests.RequestException as e:
+        print(f"Ollama request error: {e}")
+        raise
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"Ollama parse error: {e}")
+        raise
+
+
 def analyze_resume(resume_text: str) -> dict:
     """
-    Analyze resume using ONLY structured extraction (production-ready, accurate)
-    NO LLM - Pure rule-based extraction for deterministic, reliable results
+    Analyze resume: use Ollama (local LLM) if USE_OLLAMA_FOR_RESUME=true, else structured extraction.
+    Falls back to structured extractor then regex fallback on any failure.
     """
-    # Use ONLY structured extraction - no LLM fallback
+    if USE_OLLAMA_FOR_RESUME:
+        try:
+            extracted_data = _analyze_resume_with_ollama(resume_text)
+            print(f"✓ Using Ollama ({OLLAMA_MODEL}) for resume parsing")
+            print(f"  - Skills found: {len(extracted_data.get('skills', []))}")
+            print(f"  - Experience entries: {len(extracted_data.get('experience', []))}")
+            print(f"  - Education entries: {len(extracted_data.get('education', []))}")
+            return extracted_data
+        except Exception as e:
+            print(f"Ollama resume parsing failed: {e}")
+            print("Falling back to structured extraction...")
+    # Structured extraction (default or fallback)
     try:
         from extraction.structured_extractor import StructuredResumeExtractor
-        
+
         extractor = StructuredResumeExtractor()
         extracted_data = extractor.extract_all(resume_text)
-        
-        # Ensure all required fields exist with proper format
+
         if not extracted_data.get('skills'):
             extracted_data['skills'] = []
         if not extracted_data.get('education'):
@@ -122,14 +201,14 @@ def analyze_resume(resume_text: str) -> dict:
             extracted_data['phone'] = ""
         if not extracted_data.get('summary'):
             extracted_data['summary'] = ""
-        
-        print(f"✓ Using structured extraction only (production mode)")
+
+        print(f"✓ Using structured extraction (no LLM)")
         print(f"  - Skills found: {len(extracted_data.get('skills', []))}")
         print(f"  - Experience entries: {len(extracted_data.get('experience', []))}")
         print(f"  - Education entries: {len(extracted_data.get('education', []))}")
-        
+
         return extracted_data
-        
+
     except ImportError as e:
         print(f"ERROR: Structured extractor not available: {e}")
         print("Falling back to basic regex parsing...")

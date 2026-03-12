@@ -8,6 +8,7 @@ let latestParsedResume = null;
 let selectedStyle = 'professional';
 let currentResumeHTML = null;
 let currentJobForResume = null;
+let currentJobListings = [];  // All jobs from last search (for email)
 let availableStyles = {};
 
 // ===== DOM ELEMENTS =====
@@ -823,6 +824,7 @@ function getProgressTitle(step) {
 }
 
 function displayJobResults(jobs) {
+    currentJobListings = Array.isArray(jobs) ? jobs : [];
     elements.progressSection.classList.add('hidden');
     elements.jobSearchSection.classList.add('hidden');
     elements.resultsSection.classList.remove('hidden');
@@ -1390,6 +1392,8 @@ async function previewResume() {
                 resume_data: currentResumeData,
                 job_description: currentJobForResume.description || '',
                 job_title: currentJobForResume.title || 'Position',
+                job_link: currentJobForResume.link || '',
+                job_listings: currentJobListings,
                 style: selectedStyle
             })
         });
@@ -1400,10 +1404,15 @@ async function previewResume() {
         if (data.success) {
             currentResumeHTML = data.resume.html;
             displayResumePreview(data.resume);
-            displayRelevanceAnalysis(data.resume.relevance, data.resume.recommendations);
-            
-            // Enable download button
+            if (data.resume.relevance) {
+                displayRelevanceAnalysis(data.resume.relevance, data.resume.recommendations);
+            }
             document.getElementById('download-resume-btn').disabled = false;
+            if (data.email_sent) {
+                showSuccess('Email sent with the resume and the job listings.');
+            } else if (data.email_error) {
+                showError('Resume generated but email failed: ' + data.email_error);
+            }
         } else {
             showError(data.error || 'Failed to generate resume');
         }

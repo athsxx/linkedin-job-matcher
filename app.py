@@ -6,6 +6,8 @@ import os
 import sqlite3
 import json
 import uuid
+import base64
+import html
 from linkedin_job_matcher import extract_text, analyze_resume, get_jobs_from_rss, match_jobs_to_resume
 from matching.analytics import calculate_resume_strength_score, analyze_skills_gap, extract_key_metrics
 from intelligence.market_intel import get_salary_insights, get_market_demand_trends, get_competition_analysis, get_industry_insights
@@ -16,6 +18,22 @@ from resume_generator2 import generate_resume_for_job, get_available_styles
 
 # Load environment variables
 load_dotenv()
+
+# Use certifi bundle for HTTPS (fixes SSL errors on some macOS/Windows setups)
+try:
+    import certifi
+    os.environ.setdefault('SSL_CERT_FILE', certifi.where())
+    os.environ.setdefault('REQUESTS_CA_BUNDLE', certifi.where())
+except ImportError:
+    pass
+
+# SendGrid (optional - email resume to user)
+try:
+    from sendgrid import SendGridAPIClient
+    from sendgrid.helpers.mail import Mail, Attachment, FileContent, FileName, FileType
+    SENDGRID_AVAILABLE = True
+except ImportError:
+    SENDGRID_AVAILABLE = False
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'fallback-secret-key-change-in-production')
@@ -44,6 +62,88 @@ def init_db():
     """)
     conn.commit()
     conn.close()
+
+
+def get_user_email(user_id):
+    """Get user email by user_id for sending resume via SendGrid."""
+    conn = get_db()
+    row = conn.execute("SELECT email FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    return row['email'] if row else None
+
+
+def send_resume_email(to_email, job_title, job_link, job_description, resume_html, job_listings=None):
+    """Send generated resume + job details + all job listings to user via SendGrid."""
+    if not SENDGRID_AVAILABLE:
+        print("SendGrid not installed; skipping email.")
+        return False, "SendGrid not installed"
+    api_key = os.getenv('SENDGRID_API_KEY')
+    from_email = os.getenv('SENDGRID_FROM_EMAIL', 'noreply@example.com')
+    if not api_key:
+        return False, "SENDGRID_API_KEY not set"
+    subject = f"Your tailored resume for: {job_title}"
+    safe_desc = html.escape((job_description or '')[:5000])
+    safe_link = html.escape(job_link or '')
+    body = f"""
+    <h2>Your tailored resume for: {html.escape(job_title)}</h2>
+    <p><strong>Job link:</strong> <a href="{safe_link or '#'}">{safe_link or 'N/A'}</a></p>
+    <h3>Job description</h3>
+    <div style="white-space: pre-wrap; background: #f5f5f5; padding: 12px; border-radius: 8px;">{safe_desc or 'N/A'}</div>
+    """
+    # Add all job listings section
+    if job_listings:
+        body += """
+    <h3 style="margin-top: 24px;">All job listings</h3>
+    <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+    <thead><tr style="background: #f1f5f9;">
+        <th style="text-align: left; padding: 8px; border: 1px solid #e2e8f0;">#</th>
+        <th style="text-align: left; padding: 8px; border: 1px solid #e2e8f0;">Title</th>
+        <th style="text-align: left; padding: 8px; border: 1px solid #e2e8f0;">Company</th>
+        <th style="text-align: left; padding: 8px; border: 1px solid #e2e8f0;">Match</th>
+        <th style="text-align: left; padding: 8px; border: 1px solid #e2e8f0;">Link</th>
+    </tr></thead>
+    <tbody>
+    """
+        for i, j in enumerate(job_listings[:100], 1):  # cap at 100
+            j = j if isinstance(j, dict) else {}
+            title = html.escape(str(j.get('title') or 'N/A')[:80])
+            company = html.escape(str(j.get('company') or 'N/A')[:50])
+            score = j.get('score') or j.get('match_score') or '–'
+            link = (j.get('link') or '').strip()
+            link_safe = html.escape(link) if link else '#'
+            body += f"""
+    <tr><td style="padding: 8px; border: 1px solid #e2e8f0;">{i}</td>
+        <td style="padding: 8px; border: 1px solid #e2e8f0;">{title}</td>
+        <td style="padding: 8px; border: 1px solid #e2e8f0;">{company}</td>
+        <td style="padding: 8px; border: 1px solid #e2e8f0;">{score}%</td>
+        <td style="padding: 8px; border: 1px solid #e2e8f0;"><a href="{link_safe}">Apply</a></td>
+    </tr>
+    """
+        body += """
+    </tbody>
+    </table>
+    """
+    body += """
+    <p style="margin-top: 20px;">The generated resume is attached as <strong>resume.html</strong>. Open it in a browser or save as PDF.</p>
+    """
+    message = Mail(
+        from_email=from_email,
+        to_emails=to_email,
+        subject=subject,
+        html_content=body
+    )
+    # Attach resume HTML
+    encoded = base64.b64encode(resume_html.encode('utf-8')).decode()
+    attachment = Attachment(FileContent(encoded), FileName("resume.html"), FileType("text/html"))
+    message.attachment = attachment
+    try:
+        sg = SendGridAPIClient(api_key)
+        sg.send(message)
+        return True, None
+    except Exception as e:
+        print(f"SendGrid error: {e}")
+        return False, str(e)
+
 
 # =====================================================
 # ================= AUTH DECORATOR ====================
@@ -668,13 +768,15 @@ def get_resume_styles():
 @app.route('/generate-resume', methods=['POST'])
 @login_required
 def generate_tailored_resume():
-    """Generate a tailored resume for a specific job"""
+    """Generate a tailored resume for a specific job and email it to the logged-in user."""
     try:
         data = request.get_json()
         
         resume_data = data.get('resume_data')
         job_description = data.get('job_description', '')
         job_title = data.get('job_title', 'Position')
+        job_link = data.get('job_link', '')
+        job_listings = data.get('job_listings') or []
         style = data.get('style', 'professional')
         
         if not resume_data:
@@ -683,8 +785,6 @@ def generate_tailored_resume():
         if not job_description:
             return jsonify({'error': 'Job description required'}), 400
         
-        # from resume_generator import generate_resume_for_job
-        
         result = generate_resume_for_job(
             resume_data,
             job_description,
@@ -692,9 +792,32 @@ def generate_tailored_resume():
             style
         )
         
+        # Email resume + job details to logged-in user
+        user_id = session.get('user_id')
+        user_email = get_user_email(user_id) if user_id else None
+        email_sent = False
+        email_error = None
+        print(f"[generate-resume] user_id={user_id}, user_email={user_email}, has_html={bool(result.get('html'))}")
+        if user_email and result.get('html'):
+            email_sent, email_error = send_resume_email(
+                to_email=user_email,
+                job_title=job_title,
+                job_link=job_link,
+                job_description=job_description,
+                resume_html=result['html'],
+                job_listings=job_listings
+            )
+            print(f"[generate-resume] email_sent={email_sent}, email_error={email_error}")
+        elif not user_email:
+            print("[generate-resume] No user_email found for session")
+        elif not result.get('html'):
+            print("[generate-resume] No resume HTML to attach")
+        
         return jsonify({
             'success': True,
-            'resume': result
+            'resume': result,
+            'email_sent': email_sent,
+            'email_error': email_error
         })
         
     except Exception as e:
