@@ -35,12 +35,15 @@ Complete step-by-step guide to deploy your Flask job matching application on Rai
 
 1. Click on your service (should auto-appear)
 2. Go to **"Variables"** tab
-3. Add these environment variables:
+3. Add these environment variables (see **RAILWAY_ENV.md** for full list):
 
 ```bash
 FLASK_SECRET_KEY=your-secret-key-here
 GOOGLE_AI_API_KEY=your-google-api-key
+SENDGRID_API_KEY=your-sendgrid-api-key
+SENDGRID_FROM_EMAIL=your-verified-sender@email.com
 USE_EXTERNAL_FEEDS=true
+USE_OLLAMA_FOR_RESUME=false
 ```
 
 **Generate a secure FLASK_SECRET_KEY:**
